@@ -32,9 +32,7 @@ public class Controller {
 			e.printStackTrace();
 		}
 		ArrayList<String> systemIPList = readConfigFile(ownIPAddress);
-		queryHandler = new QueryHandler(port, dataFileName, ownIPAddress, concurrentFailureNumber, systemIPList);
-		Thread connectionHandlerThread = new Thread(queryHandler);
-		connectionHandlerThread.start();			
+		queryHandler = new QueryHandler(port, dataFileName, ownIPAddress, concurrentFailureNumber, systemIPList);		
 		getQueries();
 	}
 

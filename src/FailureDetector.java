@@ -1,5 +1,7 @@
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
 
 
@@ -10,6 +12,10 @@ public class FailureDetector {
 	
 	/** The states. */
 	private HashMap<String, Boolean> states = new HashMap<String, Boolean>();
+	
+	private HashSet<String> aliveNeighbors = new HashSet<String>();
+	
+	private long aliveNeighborCheckStartTime;
 	
 	private long heartbeatReceiverWaitPeriod;
 	
@@ -47,6 +53,26 @@ public class FailureDetector {
 			}	
 		}
 		return failedMachines;
+	}
+	
+	public void addAliveNeighbor(String IPAddress) {
+		aliveNeighbors.add(IPAddress);
+ 	}
+	
+	public HashSet<String> getAliveNeighbors() {
+		return aliveNeighbors;
+	}
+	
+	public void resetAliveNeighbors() {
+		Iterator<String> iterator = aliveNeighbors.iterator();
+		while (iterator.hasNext()) {
+			aliveNeighbors.remove(iterator.next());
+		}
+		aliveNeighborCheckStartTime = System.currentTimeMillis();
+	}
+	
+	public long getAliveNeighborCheckStartTime() {
+		return aliveNeighborCheckStartTime;
 	}
 
 }

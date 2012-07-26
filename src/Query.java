@@ -27,6 +27,7 @@ public class Query implements Serializable {
 	
 	private HashMap<String, ArrayList<String>> valuesMap;
 	
+	private String aliveNeighborIP;
 	
 	public Query(QueryType queryType) {
 		this.queryType = queryType;
@@ -121,6 +122,14 @@ public class Query implements Serializable {
 	
 	public HashMap<String, ArrayList<String>> getValues() {
 		return valuesMap;
+	}
+	
+	public void setAliveNeighborIP(String IPAddress) {
+		aliveNeighborIP = IPAddress;
+	}
+	
+	public String getAliveNeighborIP() {
+		return aliveNeighborIP;
 	}
 	
 
