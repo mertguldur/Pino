@@ -1,6 +1,7 @@
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
 
 
@@ -13,19 +14,17 @@ public class Query implements Serializable {
 	
 	private QueryType queryType;
 	
-	private HashMap<String, Integer> storageSizes;
+	private HashMap<String, Integer> storageSizes = new HashMap<String, Integer>();
 	
 	private String queryOriginMachineIP;
 
-	private String machineIPWithOperation;
+	private HashSet<String> machineIPsWithOperation;
 	
 	private String key;
 	
 	private String value;
-	
-	private HashMap<String, ArrayList<String>> replicaStorage;
-	
-	private HashMap<String, ArrayList<String>> valuesMap;
+		
+	private HashMap<String, ArrayList<String>> valuesMap = new HashMap<String, ArrayList<String>>();
 	
 	private String aliveNeighborIP;
 	
@@ -57,15 +56,6 @@ public class Query implements Serializable {
 			}
 			return IPWithMinimumSize;
 		}
-	
-	}
-	
-	public void setReplicaStorage(HashMap<String, ArrayList<String>> replicaStorage) {
-		this.replicaStorage = replicaStorage;
-	}
-	
-	public HashMap<String, ArrayList<String>> getReplicaStorage() {
-		return replicaStorage;
 	}
 	
 	public String getKey() {
@@ -94,19 +84,19 @@ public class Query implements Serializable {
 	
 	public void updateStorageSize(String IPAddress, int size) {
 		synchronized (storageSizes) {
-			if (storageSizes == null) {
-				storageSizes = new HashMap<String, Integer>();
-			}
 			storageSizes.put(IPAddress, size);
 		}
 	}
 	
-	public void setMachineIPWithOperation(String machineIPWithOperation) {
-		this.machineIPWithOperation = machineIPWithOperation;
+	public void addMachineIPWithOperation(String machineIPWithOperation) {
+		if (machineIPsWithOperation == null) {
+			machineIPsWithOperation = new HashSet<String>();
+ 		}
+		machineIPsWithOperation.add(machineIPWithOperation);
 	}
 	
-	public String getMachineIPWithOperation() {
-		return machineIPWithOperation;
+	public HashSet<String> getMachineIPsWithOperation() {
+		return machineIPsWithOperation;
 	}
 
 	public void setValue(String value) {
@@ -114,9 +104,6 @@ public class Query implements Serializable {
 	}
 	
 	public void addValues(String IPAddress, ArrayList<String> currentValues) {
-		if (valuesMap == null) {
-			valuesMap = new HashMap<String, ArrayList<String>>();
-		}
 		valuesMap.put(IPAddress, currentValues);
 	}
 	

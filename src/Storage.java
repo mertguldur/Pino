@@ -2,6 +2,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Scanner;
 import java.util.Set;
 
@@ -10,27 +11,47 @@ public class Storage {
 	
 	private HashMap<String, HashMap<String, ArrayList<String>>> storage = new HashMap<String, HashMap<String, ArrayList<String>>>();
 	
+	private HashSet<String> localStorageIPs = new HashSet<String>();
+	
 	private String dataFileName;
 	
 	private String ownIPAddress;
 	
-	public Storage(String dataFileName, ArrayList<String> systemIPList, String ownIPAddress) {
+	private int concurrentFailureNumber;
+	
+	public Storage(String dataFileName, ArrayList<String> systemIPList, String ownIPAddress, int concurrentFailureNumber) {
 		this.dataFileName = dataFileName;
 		this.ownIPAddress = ownIPAddress;
+		this.concurrentFailureNumber = concurrentFailureNumber;
+		localStorageIPs.add(ownIPAddress);
 		buildStorage(systemIPList);
-		System.out.println("Built the storage");
 	}
 	
 	private void buildStorage(ArrayList<String> systemIPList) {
 		int totalLineNumber = getLineNumberOfFile();
 		float index = systemIPList.indexOf(ownIPAddress);
 		float size = systemIPList.size();
-		int startLineNumber = (int)(((index) / size) * (float)totalLineNumber);
-		int endLineNumber = (int)(((index+1.0) / size) * (float)totalLineNumber);
-		readDataFile(ownIPAddress, startLineNumber, endLineNumber);
+		for (int i=0; i<concurrentFailureNumber+1; i++) {
+			final String IPAddress = systemIPList.get((int) index);
+			final int startLineNumber = (int)(((index) / size) * (float)totalLineNumber);
+			final int endLineNumber = (int)(((index+1.0) / size) * (float)totalLineNumber);
+			Thread dataFileReader = new Thread(new Runnable() {	
+				@Override
+				public void run() {
+					readDataFile(IPAddress, startLineNumber, endLineNumber);					
+				}
+			});
+			dataFileReader.start();
+			index--;
+			if (index < 0) {
+				index += 4.0;
+			}
+		}
 	}
 	
 	private void readDataFile(String IPAddress, int startLineNumber, int endLineNumber) {
+		String isLocal = localStorageIPs.contains(IPAddress) ? "local" : "replica";
+		System.out.println("Started building the " +isLocal+" storage for IP: "+IPAddress+" | startLine: "+startLineNumber+ " endLine: " +endLineNumber);
 		HashMap<String, ArrayList<String>> innerStorage = new HashMap<String, ArrayList<String>>();
 		storage.put(IPAddress, innerStorage);
 	    Scanner scanner = null;
@@ -64,68 +85,82 @@ public class Storage {
 		} finally {
 	      scanner.close();
 	    }
+		System.out.println("Built the " +isLocal+" storage for IP: "+IPAddress);
 	}
 	
-	public void insert(String IPAddress, String key, String value) {
+	public void insert(String key, String value) {
 		synchronized (storage) {
-			if (storage.containsKey(IPAddress)) {
-				HashMap<String, ArrayList<String>> innerStorage = storage.get(IPAddress);
-				if (innerStorage.containsKey(key)) {
-					 ArrayList<String> values = innerStorage.get(key);
-					 values.add(value);
-				} 
-				else {
-					ArrayList<String> values = new ArrayList<String>();
-					values.add(value);
-					innerStorage.put(key, values);
+			boolean inserted = false;
+			Set<String> allStorageIPs = storage.keySet();
+			for (String IPAddress : allStorageIPs) {
+				if (storage.get(IPAddress).containsKey(key)) {
+					storage.get(IPAddress).get(key).add(value);
+					inserted = true;
 				}
+			}
+			if (inserted) {
+				return;
+			}
+			int smallestSize = Integer.MAX_VALUE;
+			String IPAddressWithSmallestSize = null;
+			for (String IPAddress : allStorageIPs) {
+				if (storage.get(IPAddress).size() < smallestSize) {
+					IPAddressWithSmallestSize = IPAddress;
+				}
+			}	
+			if (storage.get(IPAddressWithSmallestSize).containsKey(key)) {
+				storage.get(IPAddressWithSmallestSize).get(key).add(value);
 			}
 			else {
 				ArrayList<String> values = new ArrayList<String>();
 				values.add(value);
-				HashMap<String, ArrayList<String>> innerStorage = new HashMap<String, ArrayList<String>>();
-				innerStorage.put(key, values);
-				storage.put(IPAddress, innerStorage);
+				storage.get(IPAddressWithSmallestSize).put(key, values);				
 			}
 		}
 	}
-	
-	public void insertReplicaStorage(String IPAddress, HashMap<String, ArrayList<String>> replicaStorage) {
-		HashMap<String, ArrayList<String>> innerStorage = new HashMap<String, ArrayList<String>>();
-		Set<String> keys = replicaStorage.keySet();
-		for (String key : keys) {
-			ArrayList<String> values = replicaStorage.get(key);
-			ArrayList<String> copyValues = new ArrayList<String>();
-			for (String value : values) {
-				copyValues.add(value);
-			}
-			innerStorage.put(key, copyValues);
-		}
-		storage.put(IPAddress, innerStorage);
- 	}
 
-	public ArrayList<String> lookup(String IPAddress, String key) {
-		synchronized (storage) {
-			if (!storage.containsKey(IPAddress)) {
-				return null;
-			}
-			if (!storage.get(IPAddress).containsKey(key)) {
-				return null;
-			}
-			return storage.get(IPAddress).get(key);
-		}
-
+	public ArrayList<String> lookup(String key) {
+		Set<String> allStorageIPs = storage.keySet();
+		return lookupImpl(key, allStorageIPs);
 	}
 	
-	public void delete(String IPAddress, String key) {
-		synchronized (storage) {
-			if (!storage.containsKey(IPAddress)) {
-				return;
+	public ArrayList<String> lookupLocal(String key) {
+		return lookupImpl(key, localStorageIPs);
+	}
+	
+	private ArrayList<String> lookupImpl(String key, Set<String> scope) {
+		ArrayList<String> values = new ArrayList<String>();
+		for (String IPAddress : scope) {
+			if (storage.get(IPAddress).containsKey(key)) {
+				values.addAll(storage.get(IPAddress).get(key));
 			}
-			if (!storage.get(IPAddress).containsKey(key)) {
-				return;
+		}
+		if (values.size() == 0) {
+			return null;
+		}
+		return values;
+	}
+	
+	public void delete(String key) {
+		for (String IPAddress : localStorageIPs) {
+			synchronized (storage) {
+				if (storage.get(IPAddress).containsKey(key)) {
+					storage.get(IPAddress).remove(key);
+				}
 			}
-			storage.get(IPAddress).remove(key);
+		}	
+	}
+	
+	public void changeIsLocalStorage(String IPAddress, boolean isLocalStorage) {
+		if (isLocalStorage) {
+			if (!localStorageIPs.contains(IPAddress)) {
+				localStorageIPs.add(IPAddress);
+			}
+		}
+		else {
+			if (localStorageIPs.contains(IPAddress)) {
+				localStorageIPs.remove(IPAddress);
+			}
 		}
 	}
 	
@@ -150,10 +185,26 @@ public class Storage {
 		return storage.get(ownIPAddress);
 	}
 	
-	public int getSize() {
-		synchronized (storage) {
-			return storage.get(ownIPAddress).size();
+	public int getLocalStorageSize() {
+		int size = 0;
+		for (String IPAddress : localStorageIPs) {
+			size += storage.get(IPAddress).size();
 		}
+		return size;
+	}
+	
+	public String getStorageSizesAsString() {
+		StringBuffer stringBuffer = new StringBuffer();
+		Set<String> allStorageIPs = storage.keySet();
+		for (String IPAddress : allStorageIPs) {
+			String isLocal = localStorageIPs.contains(IPAddress) ? "local" : "replica";
+			stringBuffer.append("Inner Storage for "+IPAddress+" ("+isLocal+") = "+storage.get(IPAddress).size()+"\n");
+		}
+		return stringBuffer.toString();
+	}
+	
+	public Set<String> getStorageKeyIPs() {
+		return storage.keySet();
 	}
 
 	public void printStorage() {

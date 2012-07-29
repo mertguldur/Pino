@@ -32,7 +32,7 @@ public class Controller {
 			e.printStackTrace();
 		}
 		ArrayList<String> systemIPList = readConfigFile(ownIPAddress);
-		queryHandler = new QueryHandler(port, dataFileName, ownIPAddress, concurrentFailureNumber, systemIPList);		
+		queryHandler = new QueryHandler(port, dataFileName, ownIPAddress, concurrentFailureNumber, systemIPList);	
 		getQueries();
 	}
 
@@ -58,11 +58,19 @@ public class Controller {
 	
 	
 	private void getQueries() {
+		BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(System.in));
+		System.out.println("Press enter to join to the distributed system.");
+		String queryTypeString;
+		try {
+			queryTypeString = bufferedReader.readLine();
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+		queryHandler.joinToTheSystem();
 		while (true) {
-			System.out.println("Enter the type of your query, i.e., \"insert\", \"lookup\", \"delete\", \"print\" or \"size\"");
-			BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(System.in));
 			try {
-				String queryTypeString = bufferedReader.readLine();
+				System.out.println("Enter the type of your query, i.e., \"insert\", \"lookup\", \"delete\", \"print\" or \"size\"");
+				queryTypeString = bufferedReader.readLine();
 				if (queryTypeString.equals("insert")) {
 					System.out.println("Enter the key:");
 					String key = bufferedReader.readLine();
@@ -84,7 +92,7 @@ public class Controller {
 					queryHandler.printStorage();
 				}
 				else if (queryTypeString.equals("size")) {
-					System.out.println("The local storage size is "+queryHandler.getStorageSize());
+					System.out.println(queryHandler.getStorageSizes());
 				}
 				else {
 					System.out.println("That type of query doesn't exist!");
