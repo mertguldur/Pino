@@ -14,9 +14,7 @@ public class FailureDetector {
 	private HashMap<String, Boolean> states = new HashMap<String, Boolean>();
 	
 	private HashSet<String> aliveNeighbors = new HashSet<String>();
-	
-	private long aliveNeighborCheckStartTime;
-	
+		
 	private long heartbeatReceiverWaitPeriod;
 	
 	
@@ -36,8 +34,8 @@ public class FailureDetector {
 	/**
 	 * Checks failures. Compares the last received heart beat times of computers with the current time.
 	 */
-	public ArrayList<String> checkFailures() {
-		ArrayList<String> failedMachines = new ArrayList<String>();
+	public HashSet<String> checkFailures() {
+		HashSet<String> failedMachines = new HashSet<String>();
 		long currentTime = System.currentTimeMillis();
 		synchronized (lastReceivedMessageTimes) {
 			synchronized (states) {
@@ -56,23 +54,55 @@ public class FailureDetector {
 	}
 	
 	public void addAliveNeighbor(String IPAddress) {
-		aliveNeighbors.add(IPAddress);
+		synchronized (aliveNeighbors) {
+			aliveNeighbors.add(IPAddress);
+		}
  	}
 	
 	public HashSet<String> getAliveNeighbors() {
-		return aliveNeighbors;
+		synchronized (aliveNeighbors) {
+			return aliveNeighbors;
+		}
 	}
 	
 	public void resetAliveNeighbors() {
-		Iterator<String> iterator = aliveNeighbors.iterator();
-		while (iterator.hasNext()) {
-			aliveNeighbors.remove(iterator.next());
+		synchronized (aliveNeighbors) {
+			aliveNeighbors = new HashSet<String>();
 		}
-		aliveNeighborCheckStartTime = System.currentTimeMillis();
 	}
 	
-	public long getAliveNeighborCheckStartTime() {
-		return aliveNeighborCheckStartTime;
+	public ArrayList<String> checkIfNeighborsJoined(ArrayList<String> currentSystemIPList, ArrayList<String> initialSystemIPList) {
+		synchronized (aliveNeighbors) {
+			for (String aliveNeighborIP : aliveNeighbors) {
+				if (!currentSystemIPList.contains(aliveNeighborIP)) {
+					currentSystemIPList.add(initialSystemIPList.indexOf(aliveNeighborIP), aliveNeighborIP);
+				}
+			}
+			return currentSystemIPList;
+		}
+	}
+	
+	public ArrayList<String> checkIfNeighborsFailed(ArrayList<String> currentSystemIPList, String ownIPAddress, int concurrentFailureNumber) {
+		synchronized (aliveNeighbors) {
+			HashSet<String> failedNeighbors = new HashSet<String>();
+			int size = currentSystemIPList.size();
+			int index = (currentSystemIPList.indexOf(ownIPAddress) + 1) % size;
+			// Check if one or more neighbors failed
+			for (int i=0; i<concurrentFailureNumber+1; i++) {
+				String neighborIPAddress = currentSystemIPList.get(index);
+				if (!aliveNeighbors.contains(neighborIPAddress)) {
+					failedNeighbors.add(neighborIPAddress);
+				}
+				index = (index + 1) % size;
+			}
+			Iterator<String> iterator = currentSystemIPList.iterator();
+			while (iterator.hasNext()) {
+				if (failedNeighbors.contains(iterator.next())) {
+					iterator.remove();
+				}
+			}
+			return currentSystemIPList;
+		}
 	}
 
 }
