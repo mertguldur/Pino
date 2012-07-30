@@ -185,6 +185,10 @@ public class Storage {
 		return storage.get(ownIPAddress);
 	}
 	
+	public HashSet<String> getLocalStorageIPs() {
+		return localStorageIPs;
+	}
+	
 	public int getLocalStorageSize() {
 		int size = 0;
 		for (String IPAddress : localStorageIPs) {
