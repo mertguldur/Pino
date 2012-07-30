@@ -28,6 +28,8 @@ public class Query implements Serializable {
 	
 	private String aliveNeighborIP;
 	
+	private HashSet<String> failedMachines = new HashSet<String>();
+	
 	public Query(QueryType queryType) {
 		this.queryType = queryType;
 	}
@@ -117,6 +119,18 @@ public class Query implements Serializable {
 	
 	public String getAliveNeighborIP() {
 		return aliveNeighborIP;
+	}
+	
+	public void addFailedMachine(String failedMachine) {
+		failedMachines.add(failedMachine);
+	}
+	
+	public void addFailedMachines(HashSet<String> failedMachinesToAdd) {
+		failedMachines.addAll(failedMachinesToAdd);
+	}
+	
+	public HashSet<String> getFailedMachines() {
+		return failedMachines;
 	}
 	
 
