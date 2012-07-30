@@ -42,7 +42,7 @@ public class QueryHandler implements Runnable {
 		
 	private int concurrentFailureNumber;
 	
-	private HashSet<String> currentlyDetectedFailedMachines = new HashSet<String>();
+	private HashSet<String> knownFailedMachines = new HashSet<String>();
 	
 	
 
@@ -96,27 +96,16 @@ public class QueryHandler implements Runnable {
 				});
 				queryReceiver.start();
 			}	
-			final HashSet<String> failedMachines = failureDetector.checkFailures();
-			if (failedMachines.size() > 0) {
-				synchronized (currentlyDetectedFailedMachines) {
-					System.out.println("Locally detected new machines: "+failedMachines+ " and the currently detected failed machines: "+currentlyDetectedFailedMachines);
-					boolean newFailedMachineDetected = false;
-					for (String IPAddress : failedMachines) {
-						if (!currentlyDetectedFailedMachines.contains(failedMachines)) {
-							currentlyDetectedFailedMachines.add(IPAddress);
-							newFailedMachineDetected = true;
-						}
+			final HashSet<String> detectedFailedMachines = failureDetector.checkFailures();
+			if (detectedFailedMachines.size() > 0) {
+				System.out.println("Locally detected new machines: "+detectedFailedMachines+ " and the currently detected failed machines: "+knownFailedMachines);
+				Thread detectedFailedMachinesHandler = new Thread(new Runnable() {		
+					@Override
+					public void run() {
+						handleDetectedFailedMachines(detectedFailedMachines);						
 					}
-					if (newFailedMachineDetected) {
-						Thread failedMachinesHandler = new Thread(new Runnable() {		
-							@Override
-							public void run() {
-								handleFailedMachines();						
-							}
-						});
-						failedMachinesHandler.start();
-					}
-				}
+				});
+				detectedFailedMachinesHandler.start();
 			}
 		}
 	}
@@ -189,7 +178,7 @@ public class QueryHandler implements Runnable {
 		}
 	}
 	
-	private void handleHeartbeatQuery(Query query) {
+	private synchronized void handleHeartbeatQuery(Query query) {
 		String IPAddress = query.getQueryOriginMachineIP();
 		failureDetector.updateLiveness(IPAddress);
 		// If a neighbor has just rejoined
@@ -199,47 +188,43 @@ public class QueryHandler implements Runnable {
 		}
 	}
 	
-	private void handleFailedMachines() {
-		System.out.println("reconstructNeighbors from handleFailedMachines");
-		reconstructNeighbors();
-		synchronized (currentlyDetectedFailedMachines) {
-			for (String IPAddress : currentlyDetectedFailedMachines) {
-				storage.changeIsLocalStorage(IPAddress, true);
-			}		
-		}
-	}
-	
-	private void handleIsNeighborAliveQuery(Query query) {
+	private synchronized void handleIsNeighborAliveQuery(Query query) {
 		System.out.println("handleIsNeighborAliveQuery from IP: "+query.getQueryOriginMachineIP());
 		if (!query.getQueryOriginMachineIP().equals(ownIPAddress)) {
 			query.setAliveNeighborIP(ownIPAddress);
 			sendQuery(query, query.getQueryOriginMachineIP());
-			HashSet<String> failedMachines = query.getFailedMachines();
-			System.out.println("Globally detected new machines: "+failedMachines+ " and the currently detected failed machines: "+currentlyDetectedFailedMachines);
-			synchronized (currentlyDetectedFailedMachines) {
-				boolean newFailedMachineDetected = false;
-				for (String IPAddress : failedMachines) {
-					if (!currentlyDetectedFailedMachines.contains(IPAddress)) {
-						System.out.println("handleIsNeighborAliveQuery - 1, new IPAddress: "+IPAddress);
-						currentlyDetectedFailedMachines.add(IPAddress);
-						newFailedMachineDetected = true;
-					}
-				}
-				if (newFailedMachineDetected) {
-					System.out.println("reconstructNeighbors from handleIsNeighborAliveQuery");
-					reconstructNeighbors();
-				}
-			}
+			HashSet<String> detectedFailedMachines = query.getFailedMachines();
+			System.out.println("Globally detected new machines: "+detectedFailedMachines+ " and the currently detected failed machines: "+knownFailedMachines);
+			handleDetectedFailedMachines(detectedFailedMachines);
 		} else {
 			failureDetector.addAliveNeighbor(query.getAliveNeighborIP());
+		}
+	}
+	
+	private synchronized void handleDetectedFailedMachines(HashSet<String> detectedFailedMachines) {
+		boolean newFailedMachineDetected = false;
+		for (String IPAddress : detectedFailedMachines) {
+			if (!knownFailedMachines.contains(detectedFailedMachines)) {
+				knownFailedMachines.add(IPAddress);
+				newFailedMachineDetected = true;
+			}
+		}
+		if (newFailedMachineDetected) {
+			reconstructNeighbors();
+			for (String IPAddress : knownFailedMachines) {
+				storage.changeIsLocalStorage(IPAddress, true);
+			}		
 		}
 	}
 	
 	private void reconstructNeighbors() {
 		Query query = new Query(QueryType.IS_NEIGHBOR_ALIVE);
 		query.setQueryOriginMachineIP(ownIPAddress);
-		query.addFailedMachines(currentlyDetectedFailedMachines);
-		sendQueryToMultipleMachines(query, concurrentFailureNumber+1-currentlyDetectedFailedMachines.size());
+		query.addFailedMachines(knownFailedMachines);
+		int neighborNumberToSendQuery = concurrentFailureNumber + 1 > currentSystemIPList.size() - 1 ? 
+				currentSystemIPList.size() - 1 : concurrentFailureNumber + 1;
+		System.out.println("Sending are you alive queries to "+neighborNumberToSendQuery+ "machines ahead.");		
+		sendQueryToMultipleMachines(query, neighborNumberToSendQuery);
 		failureDetector.resetAliveNeighbors();
 		try {
 			Thread.sleep(HEARTBEAT_RECEIVER_WAIT_PERIOD/2);

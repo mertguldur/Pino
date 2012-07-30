@@ -54,25 +54,25 @@ public class FailureDetector {
 	}
 	
 	public void addAliveNeighbor(String IPAddress) {
-		synchronized (aliveNeighbors) {
+		synchronized (this) {
 			aliveNeighbors.add(IPAddress);
 		}
  	}
 	
 	public HashSet<String> getAliveNeighbors() {
-		synchronized (aliveNeighbors) {
+		synchronized (this) {
 			return aliveNeighbors;
 		}
 	}
 	
 	public void resetAliveNeighbors() {
-		synchronized (aliveNeighbors) {
+		synchronized (this) {
 			aliveNeighbors = new HashSet<String>();
 		}
 	}
 	
 	public ArrayList<String> checkIfNeighborsJoined(ArrayList<String> currentSystemIPList, ArrayList<String> initialSystemIPList) {
-		synchronized (aliveNeighbors) {
+		synchronized (this) {
 			for (String aliveNeighborIP : aliveNeighbors) {
 				if (!currentSystemIPList.contains(aliveNeighborIP)) {
 					currentSystemIPList.add(initialSystemIPList.indexOf(aliveNeighborIP), aliveNeighborIP);
@@ -83,11 +83,10 @@ public class FailureDetector {
 	}
 	
 	public ArrayList<String> checkIfNeighborsFailed(ArrayList<String> currentSystemIPList, String ownIPAddress, int concurrentFailureNumber) {
-		synchronized (aliveNeighbors) {
+		synchronized (this) {
 			HashSet<String> failedNeighbors = new HashSet<String>();
 			int size = currentSystemIPList.size();
 			int index = (currentSystemIPList.indexOf(ownIPAddress) + 1) % size;
-			// Check if one or more neighbors failed
 			for (int i=0; i<concurrentFailureNumber+1; i++) {
 				String neighborIPAddress = currentSystemIPList.get(index);
 				if (!aliveNeighbors.contains(neighborIPAddress)) {
