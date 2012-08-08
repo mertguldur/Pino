@@ -7,18 +7,35 @@ import java.util.Scanner;
 import java.util.Set;
 
 
+// TODO: Auto-generated Javadoc
+/**
+ * The Class Storage.
+ */
 public class Storage {
 	
+	/** The storage. */
 	private HashMap<String, HashMap<String, ArrayList<String>>> storage = new HashMap<String, HashMap<String, ArrayList<String>>>();
 	
+	/** The local storage i ps. */
 	private HashSet<String> localStorageIPs = new HashSet<String>();
 	
+	/** The data file name. */
 	private String dataFileName;
 	
+	/** The own ip address. */
 	private String ownIPAddress;
 	
+	/** The concurrent failure number. */
 	private int concurrentFailureNumber;
 	
+	/**
+	 * Instantiates a new storage.
+	 *
+	 * @param dataFileName the data file name
+	 * @param systemIPList the system ip list
+	 * @param ownIPAddress the own ip address
+	 * @param concurrentFailureNumber the concurrent failure number
+	 */
 	public Storage(String dataFileName, ArrayList<String> systemIPList, String ownIPAddress, int concurrentFailureNumber) {
 		this.dataFileName = dataFileName;
 		this.ownIPAddress = ownIPAddress;
@@ -27,6 +44,11 @@ public class Storage {
 		buildStorage(systemIPList);
 	}
 	
+	/**
+	 * Builds the storage.
+	 *
+	 * @param systemIPList the system ip list
+	 */
 	private void buildStorage(ArrayList<String> systemIPList) {
 		int totalLineNumber = getLineNumberOfFile();
 		float index = systemIPList.indexOf(ownIPAddress);
@@ -44,11 +66,18 @@ public class Storage {
 			dataFileReader.start();
 			index--;
 			if (index < 0) {
-				index += 4.0;
+				index += systemIPList.size();
 			}
 		}
 	}
 	
+	/**
+	 * Read data file.
+	 *
+	 * @param IPAddress the iP address
+	 * @param startLineNumber the start line number
+	 * @param endLineNumber the end line number
+	 */
 	private void readDataFile(String IPAddress, int startLineNumber, int endLineNumber) {
 		String isLocal = localStorageIPs.contains(IPAddress) ? "local" : "replica";
 		System.out.println("Started building the " +isLocal+" storage for IP: "+IPAddress+" | startLine: "+startLineNumber+ " endLine: " +endLineNumber);
@@ -88,17 +117,23 @@ public class Storage {
 		System.out.println("Built the " +isLocal+" storage for IP: "+IPAddress);
 	}
 	
+	/**
+	 * Insert.
+	 *
+	 * @param key the key
+	 * @param value the value
+	 */
 	public void insert(String key, String value) {
 		synchronized (storage) {
-			boolean inserted = false;
+			boolean overwrittenTheKey = false;
 			Set<String> allStorageIPs = storage.keySet();
 			for (String IPAddress : allStorageIPs) {
 				if (storage.get(IPAddress).containsKey(key)) {
 					storage.get(IPAddress).get(key).add(value);
-					inserted = true;
+					overwrittenTheKey = true;
 				}
 			}
-			if (inserted) {
+			if (overwrittenTheKey) {
 				return;
 			}
 			int smallestSize = Integer.MAX_VALUE;
@@ -106,28 +141,43 @@ public class Storage {
 			for (String IPAddress : allStorageIPs) {
 				if (storage.get(IPAddress).size() < smallestSize) {
 					IPAddressWithSmallestSize = IPAddress;
+					smallestSize = storage.get(IPAddress).size();
 				}
 			}	
-			if (storage.get(IPAddressWithSmallestSize).containsKey(key)) {
-				storage.get(IPAddressWithSmallestSize).get(key).add(value);
-			}
-			else {
-				ArrayList<String> values = new ArrayList<String>();
-				values.add(value);
-				storage.get(IPAddressWithSmallestSize).put(key, values);				
-			}
+			ArrayList<String> values = new ArrayList<String>();
+			values.add(value);
+			storage.get(IPAddressWithSmallestSize).put(key, values);				
 		}
 	}
 
+	/**
+	 * Lookup.
+	 *
+	 * @param key the key
+	 * @return the array list
+	 */
 	public ArrayList<String> lookup(String key) {
 		Set<String> allStorageIPs = storage.keySet();
 		return lookupImpl(key, allStorageIPs);
 	}
 	
+	/**
+	 * Lookup local.
+	 *
+	 * @param key the key
+	 * @return the array list
+	 */
 	public ArrayList<String> lookupLocal(String key) {
 		return lookupImpl(key, localStorageIPs);
 	}
 	
+	/**
+	 * Lookup impl.
+	 *
+	 * @param key the key
+	 * @param scope the scope
+	 * @return the array list
+	 */
 	private ArrayList<String> lookupImpl(String key, Set<String> scope) {
 		ArrayList<String> values = new ArrayList<String>();
 		for (String IPAddress : scope) {
@@ -141,6 +191,11 @@ public class Storage {
 		return values;
 	}
 	
+	/**
+	 * Delete.
+	 *
+	 * @param key the key
+	 */
 	public void delete(String key) {
 		for (String IPAddress : localStorageIPs) {
 			synchronized (storage) {
@@ -151,9 +206,15 @@ public class Storage {
 		}	
 	}
 	
+	/**
+	 * Change is local storage.
+	 *
+	 * @param IPAddress the iP address
+	 * @param isLocalStorage the is local storage
+	 */
 	public void changeIsLocalStorage(String IPAddress, boolean isLocalStorage) {
 		if (isLocalStorage) {
-			if (!localStorageIPs.contains(IPAddress)) {
+			if (!localStorageIPs.contains(IPAddress) && storage.keySet().contains(IPAddress)) {
 				localStorageIPs.add(IPAddress);
 			}
 		}
@@ -164,6 +225,11 @@ public class Storage {
 		}
 	}
 	
+	/**
+	 * Gets the line number of file.
+	 *
+	 * @return the line number of file
+	 */
 	private int getLineNumberOfFile() {
 	    Scanner scanner = null;
 		int count = 0;
@@ -181,14 +247,29 @@ public class Storage {
 		return count;
 	}
 	
+	/**
+	 * Gets the local storage.
+	 *
+	 * @return the local storage
+	 */
 	public HashMap<String, ArrayList<String>> getLocalStorage() {
 		return storage.get(ownIPAddress);
 	}
 	
+	/**
+	 * Gets the local storage i ps.
+	 *
+	 * @return the local storage i ps
+	 */
 	public HashSet<String> getLocalStorageIPs() {
 		return localStorageIPs;
 	}
 	
+	/**
+	 * Gets the local storage size.
+	 *
+	 * @return the local storage size
+	 */
 	public int getLocalStorageSize() {
 		int size = 0;
 		for (String IPAddress : localStorageIPs) {
@@ -197,6 +278,11 @@ public class Storage {
 		return size;
 	}
 	
+	/**
+	 * Gets the storage sizes as string.
+	 *
+	 * @return the storage sizes as string
+	 */
 	public String getStorageSizesAsString() {
 		StringBuffer stringBuffer = new StringBuffer();
 		Set<String> allStorageIPs = storage.keySet();
@@ -207,10 +293,18 @@ public class Storage {
 		return stringBuffer.toString();
 	}
 	
+	/**
+	 * Gets the storage key i ps.
+	 *
+	 * @return the storage key i ps
+	 */
 	public Set<String> getStorageKeyIPs() {
 		return storage.keySet();
 	}
 
+	/**
+	 * Prints the storage.
+	 */
 	public void printStorage() {
 		synchronized (storage) {
 			System.out.println(storage.toString());

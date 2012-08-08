@@ -11,7 +11,7 @@ public class Launcher {
 	 */
 	public static void main(String[] args) {
 		int port = Integer.parseInt(args[0]);
-		String dataFileName = args[1];
+		String dataFileName = "../"+args[1];
 		int concurrentFailureNumber = Integer.parseInt(args[2]);
 		new Controller(port, dataFileName, concurrentFailureNumber);
 	}

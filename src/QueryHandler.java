@@ -7,6 +7,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
 
 import javax.sql.ConnectionEvent;
@@ -14,41 +15,51 @@ import javax.sql.ConnectionEvent;
 
 // TODO: Auto-generated Javadoc
 /**
+ * The Class QueryHandler.
  *
  * @see ConnectionEvent
  */
 public class QueryHandler implements Runnable {
 	
+	/** The Constant HEARTBEAT_RECEIVER_WAIT_PERIOD. */
 	private static final int HEARTBEAT_RECEIVER_WAIT_PERIOD = 10000;
 	
-	private static final int HEARTBEAT_SENDER_WAIT_PERIOD = 2000;
+	/** The Constant HEARTBEAT_SENDER_WAIT_PERIOD. */
+	private static final int HEARTBEAT_SENDER_WAIT_PERIOD = 1000;
 	
+	/** The failure detector. */
 	private FailureDetector failureDetector;
 	
 	/** The server socket. */
 	private ServerSocket serverSocket;
 	
+	/** The next neighbor ip address. */
 	private String nextNeighborIPAddress;
 		
+	/** The storage. */
 	private Storage storage;
 		
+	/** The port. */
 	private int port;
 				
+	/** The own ip address. */
 	private String ownIPAddress;
 	
-	private ArrayList<String> initialSystemIPList;
+	/** The initial system ip list. */
+	private ArrayList<String> initialSystemIPList = new ArrayList<String>();
 	
+	/** The current system ip list. */
 	private ArrayList<String> currentSystemIPList;
 		
+	/** The concurrent failure number. */
 	private int concurrentFailureNumber;
 	
+	/** The known failed machines. */
 	private HashSet<String> knownFailedMachines = new HashSet<String>();
 	
 	
-
-	/** The states. */	
 	/**
-	 * Instantiates a new connection listener.
+	 * Instantiates a new query handler.
 	 *
 	 * @param port the port
 	 * @param dataFileName 
@@ -66,18 +77,25 @@ public class QueryHandler implements Runnable {
 		}
 		this.port = port;
 		this.ownIPAddress = ownIPAddress;
-		this.initialSystemIPList = systemIPList;
+		for (String IPAddress : systemIPList) {
+			initialSystemIPList.add(IPAddress);
+		}
 		this.currentSystemIPList = systemIPList;
 		this.concurrentFailureNumber = concurrentFailureNumber;
 		setNextNeighborIPAddress();
 		initialize(dataFileName);
 	}
 	
+	/**
+	 * Initialize.
+	 *
+	 * @param dataFileName the data file name
+	 */
 	private void initialize(String dataFileName) {
+		failureDetector = new FailureDetector(HEARTBEAT_RECEIVER_WAIT_PERIOD);
 		Thread queryHandlerThread = new Thread(this);
 		queryHandlerThread.start();	
 		storage = new Storage(dataFileName, currentSystemIPList, ownIPAddress, concurrentFailureNumber);
-		failureDetector = new FailureDetector(HEARTBEAT_RECEIVER_WAIT_PERIOD);
 	}
 
 	/* (non-Javadoc)
@@ -96,21 +114,28 @@ public class QueryHandler implements Runnable {
 				});
 				queryReceiver.start();
 			}	
-			final HashSet<String> detectedFailedMachines = failureDetector.checkFailures();
-			if (detectedFailedMachines.size() > 0) {
-				System.out.println("Locally detected new machines: "+detectedFailedMachines+ " and the currently detected failed machines: "+knownFailedMachines);
-				Thread detectedFailedMachinesHandler = new Thread(new Runnable() {		
-					@Override
-					public void run() {
+			Thread detectedFailedMachinesHandler = new Thread(new Runnable() {		
+				@Override
+				public void run() {
+					final HashSet<String> detectedFailedMachines = failureDetector.checkFailures();
+					if (detectedFailedMachines.size() > 0) {
+						if(!isPredecessorFailure(detectedFailedMachines)) {
+							failureDetector.stopCheckingMachines(detectedFailedMachines);
+							return;
+						}
+						System.out.println("The process with IPs: "+detectedFailedMachines+" has failed.");
 						handleDetectedFailedMachines(detectedFailedMachines);						
 					}
-				});
-				detectedFailedMachinesHandler.start();
-			}
+				}
+			});
+			detectedFailedMachinesHandler.start();
 		}
 	}
 	
-	public void joinToTheSystem() {
+	/**
+	 * Join to the system.
+	 */
+	public void joinTheSystem() {
 		Thread heartbeatSender = new Thread(new Runnable() {
 			@Override
 			public void run() {
@@ -120,12 +145,17 @@ public class QueryHandler implements Runnable {
 		heartbeatSender.start();
 	}
 
+	/**
+	 * Send heartbeats.
+	 */
 	private void sendHeartbeats() {
 		while (true) {
 			QueryType queryType = QueryType.HEARTBEAT;
 			Query query = new Query(queryType);
 			query.setQueryOriginMachineIP(ownIPAddress);
-			sendQueryToMultipleMachines(query, concurrentFailureNumber);
+			int neighborNumberToSendQuery = concurrentFailureNumber > currentSystemIPList.size() - 1 ? 
+					currentSystemIPList.size() - 1 : concurrentFailureNumber;
+			sendQueryToMultipleMachines(query, neighborNumberToSendQuery);
 			try {
 				Thread.sleep(HEARTBEAT_SENDER_WAIT_PERIOD);
 			} catch (InterruptedException e) {
@@ -149,6 +179,11 @@ public class QueryHandler implements Runnable {
 		return receiverSocket;
 	}
 	
+	/**
+	 * Receive query.
+	 *
+	 * @param receiverSocket the receiver socket
+	 */
 	private void receiveQuery(Socket receiverSocket) {
 		try {
 			ObjectInputStream objectInputStream = new ObjectInputStream(receiverSocket.getInputStream());
@@ -178,52 +213,129 @@ public class QueryHandler implements Runnable {
 		}
 	}
 	
-	private synchronized void handleHeartbeatQuery(Query query) {
+	/**
+	 * Checks if is predecessor failure.
+	 *
+	 * @param detectedFailedMachines the detected failed machines
+	 * @return true, if is predecessor failure
+	 */
+	private boolean isPredecessorFailure(HashSet<String> detectedFailedMachines) {
+		int neighborNumberToProcess = concurrentFailureNumber > currentSystemIPList.size() - 1 ? 
+				currentSystemIPList.size() - 1 : concurrentFailureNumber;
+		int index = currentSystemIPList.indexOf(ownIPAddress) - 1; 		
+		for (int i=0; i<neighborNumberToProcess; i++) {
+			if (index < 0) {
+				index += currentSystemIPList.size();
+			}
+			if (detectedFailedMachines.contains(currentSystemIPList.get(index))) {
+				return true;
+			}
+			index--;
+		}
+		return false;
+	}
+
+	/**
+	 * Handle heartbeat query.
+	 *
+	 * @param query the query
+	 */
+	private void handleHeartbeatQuery(Query query) {
 		String IPAddress = query.getQueryOriginMachineIP();
 		failureDetector.updateLiveness(IPAddress);
 		// If a neighbor has just rejoined
 		if (!currentSystemIPList.contains(IPAddress)) {
-			reconstructNeighbors();
-			storage.changeIsLocalStorage(IPAddress, false);
+			System.out.println("The process with IP: "+IPAddress+" has rejoined.");
+			handleDetectedRejoinedMachine(IPAddress, null);
 		}
 	}
 	
-	private synchronized void handleIsNeighborAliveQuery(Query query) {
-		System.out.println("handleIsNeighborAliveQuery from IP: "+query.getQueryOriginMachineIP());
+	/**
+	 * Handle is neighbor alive query.
+	 *
+	 * @param query the query
+	 */
+	private void handleIsNeighborAliveQuery(Query query) {
 		if (!query.getQueryOriginMachineIP().equals(ownIPAddress)) {
 			query.setAliveNeighborIP(ownIPAddress);
 			sendQuery(query, query.getQueryOriginMachineIP());
 			HashSet<String> detectedFailedMachines = query.getFailedMachines();
-			System.out.println("Globally detected new machines: "+detectedFailedMachines+ " and the currently detected failed machines: "+knownFailedMachines);
-			handleDetectedFailedMachines(detectedFailedMachines);
+			if (query.getRejoinedMachine() != null) {
+				handleDetectedRejoinedMachine(query.getRejoinedMachine(), query.getFailedMachines());
+			} else {
+				handleDetectedFailedMachines(detectedFailedMachines);
+			}
 		} else {
 			failureDetector.addAliveNeighbor(query.getAliveNeighborIP());
 		}
 	}
 	
+	/**
+	 * Handle detected rejoined machine.
+	 *
+	 * @param rejoinedIPAddress the rejoined ip address
+	 * @param detectedFailedMachines the detected failed machines
+	 */
+	private synchronized void handleDetectedRejoinedMachine(String rejoinedIPAddress, HashSet<String> detectedFailedMachines) {
+		if (detectedFailedMachines != null) {
+			knownFailedMachines.addAll(detectedFailedMachines);
+			currentSystemIPList.removeAll(detectedFailedMachines);
+			for (String IPAddress : detectedFailedMachines) {
+				storage.changeIsLocalStorage(IPAddress, true);
+			}
+			setNextNeighborIPAddress();
+		}
+		boolean newRejoinedMachineDetected = false;
+		Iterator<String> iterator = knownFailedMachines.iterator();
+		while (iterator.hasNext()) {
+			if (iterator.next().equals(rejoinedIPAddress)) {
+				newRejoinedMachineDetected = true;
+				iterator.remove();
+			}
+		}
+		if (newRejoinedMachineDetected) {
+			reconstructNeighbors(rejoinedIPAddress);
+		}
+	}
+
+	/**
+	 * Handle detected failed machines.
+	 *
+	 * @param detectedFailedMachines the detected failed machines
+	 */
 	private synchronized void handleDetectedFailedMachines(HashSet<String> detectedFailedMachines) {
 		boolean newFailedMachineDetected = false;
 		for (String IPAddress : detectedFailedMachines) {
-			if (!knownFailedMachines.contains(detectedFailedMachines)) {
+			if (!knownFailedMachines.contains(IPAddress)) {
 				knownFailedMachines.add(IPAddress);
 				newFailedMachineDetected = true;
 			}
 		}
 		if (newFailedMachineDetected) {
-			reconstructNeighbors();
-			for (String IPAddress : knownFailedMachines) {
+			reconstructNeighbors(null);
+			for (String IPAddress : detectedFailedMachines) {
 				storage.changeIsLocalStorage(IPAddress, true);
 			}		
 		}
 	}
 	
-	private void reconstructNeighbors() {
+	/**
+	 * Reconstruct neighbors.
+	 *
+	 * @param rejoinedIPAddress the rejoined ip address
+	 */
+	private void reconstructNeighbors(String rejoinedIPAddress) {
 		Query query = new Query(QueryType.IS_NEIGHBOR_ALIVE);
 		query.setQueryOriginMachineIP(ownIPAddress);
+		if (rejoinedIPAddress != null) {
+			query.setRejoinedMachine(rejoinedIPAddress);
+			if (!currentSystemIPList.contains(rejoinedIPAddress)) {
+				readdToCurrentSystemIPList(rejoinedIPAddress);
+			}
+		}
 		query.addFailedMachines(knownFailedMachines);
 		int neighborNumberToSendQuery = concurrentFailureNumber + 1 > currentSystemIPList.size() - 1 ? 
 				currentSystemIPList.size() - 1 : concurrentFailureNumber + 1;
-		System.out.println("Sending are you alive queries to "+neighborNumberToSendQuery+ "machines ahead.");		
 		sendQueryToMultipleMachines(query, neighborNumberToSendQuery);
 		failureDetector.resetAliveNeighbors();
 		try {
@@ -232,14 +344,44 @@ public class QueryHandler implements Runnable {
 			e.printStackTrace();
 		}
 		HashSet<String> aliveNeighbors = failureDetector.getAliveNeighbors();
-		System.out.println("aliveNeighbors: "+aliveNeighbors);
 		currentSystemIPList = failureDetector.checkIfNeighborsJoined(currentSystemIPList, initialSystemIPList);
 		currentSystemIPList = failureDetector.checkIfNeighborsFailed(currentSystemIPList, ownIPAddress, concurrentFailureNumber);
+		Iterator<String> iterator = knownFailedMachines.iterator();
+		while (iterator.hasNext()) {
+			if (aliveNeighbors.contains(iterator.next())) {
+				iterator.remove();
+			}
+		}
 		setNextNeighborIPAddress();
 	}
 	
+	/**
+	 * Readd to current system ip list.
+	 *
+	 * @param rejoinedIPAddress the rejoined ip address
+	 */
+	private void readdToCurrentSystemIPList(String rejoinedIPAddress) {
+		int livingSuccessorIndex = 0;
+		String livingSuccessor = null;
+		int currentMachineIndex = initialSystemIPList.indexOf(rejoinedIPAddress);
+		for (int i=0; i<initialSystemIPList.size(); i++) {
+			currentMachineIndex++;
+			livingSuccessorIndex = currentMachineIndex % initialSystemIPList.size();
+			livingSuccessor = initialSystemIPList.get(livingSuccessorIndex);
+			if (currentSystemIPList.contains(livingSuccessor)) {
+				break;
+			}
+		}
+		currentSystemIPList.add(currentSystemIPList.indexOf(livingSuccessor), rejoinedIPAddress);
+	}
+
+	/**
+	 * Start insertion.
+	 *
+	 * @param key the key
+	 * @param value the value
+	 */
 	public void startInsertion(String key, String value) {
-		System.out.println("startInsertion");
 		ArrayList<String> allValues = storage.lookup(key);
 		ArrayList<String> localValues = storage.lookupLocal(key);
 		// If the key exists in this machine
@@ -249,7 +391,7 @@ public class QueryHandler implements Runnable {
 				storage.insert(key, value);
 			}	
 			if (localValues != null) {
-				System.out.println("(1) The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+ownIPAddress);
+				System.out.println("The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+ownIPAddress);
 			}
 		}
 		QueryType queryType = QueryType.INSERT_ROUND_1;
@@ -259,8 +401,12 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 
+	/**
+	 * Start lookup.
+	 *
+	 * @param key the key
+	 */
 	public void startLookup(String key) {
-		System.out.println("startLookup");
 		ArrayList<String> localValues = storage.lookupLocal(key);
 		QueryType queryType = QueryType.LOOKUP;
 		Query query = new Query(queryType, key);
@@ -271,8 +417,12 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 
+	/**
+	 * Start deletion.
+	 *
+	 * @param key the key
+	 */
 	public void startDeletion(String key) {
-		System.out.println("startDeletion");
 		ArrayList<String> allValues = storage.lookup(key);
 		ArrayList<String> localValues = storage.lookupLocal(key);
 		QueryType queryType = QueryType.DELETE;
@@ -287,31 +437,32 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 
+	/**
+	 * Handle insert round1 query.
+	 *
+	 * @param query the query
+	 */
 	private void handleInsertRound1Query(Query query) {
-		System.out.println("handleInsertRound1Query");
 		// If we are the issuing client
 		if (query.getQueryOriginMachineIP().equals(ownIPAddress)) {
-			System.out.println("handleInsertRound1Query - 1");
 			HashSet<String> machineIPsWithOperation = query.getMachineIPsWithOperation();
 			// If a machine in the system detected that it already has the given key and so it inserted the new value
 			if (machineIPsWithOperation != null) {
-				System.out.println("handleInsertRound1Query - 2");
 				String key = query.getKey();
 				String value = query.getValue();
 				for (String IPAddress : machineIPsWithOperation) {
-					System.out.println("(2) The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+IPAddress);
+					System.out.println("The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+IPAddress);
 				}
 				return;
 			}
 			// If this machine contains a local or replica storage with lowest load, insert
 			if (storage.getStorageKeyIPs().contains(query.getIPWithMininumSize())) {
-				System.out.println("handleInsertRound1Query - 3");
 				String key = query.getKey();
 				String value = query.getValue();
 				storage.insert(key, value);
 				// If the machine having the lowest load is a local storage in this machine
 				if (storage.getLocalStorageIPs().contains(query.getIPWithMininumSize())) {
-					System.out.println("(3) The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+ownIPAddress);
+					System.out.println("The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+ownIPAddress);
 				}
 			}
 			// Start Round 2
@@ -325,7 +476,6 @@ public class QueryHandler implements Runnable {
 		ArrayList<String> localValues = storage.lookupLocal(key);
 		// If the key exists in this machine
 		if (allValues != null) {
-			System.out.println("handleInsertRound1Query - 4");
 			// If the key exists in this machine but not the value, insert
 			if (!allValues.contains(value)) {
 				storage.insert(key, value);
@@ -341,33 +491,33 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 
+	/**
+	 * Handle insert round2 query.
+	 *
+	 * @param query the query
+	 */
 	private void handleInsertRound2Query(Query query) {
-		System.out.println("handleInsertRound2Query");
 		// If we are the issuing client, announce the machines in which the key-value pair has been inserted
 		if (query.getQueryOriginMachineIP().equals(ownIPAddress)) {
-			System.out.println("handleInsertRound2Query - 1");
 			HashSet<String> machineIPsWithOperation = query.getMachineIPsWithOperation();
 			// If a machine in the system detected that it already has the given key and so it inserted the new value
 			if (machineIPsWithOperation != null) {
-				System.out.println("handleInsertRound2Query - 2");
 				String key = query.getKey();
 				String value = query.getValue();
 				for (String IPAddress : machineIPsWithOperation) {
-					System.out.println("(4) The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+IPAddress);
+					System.out.println("The key-value pair <"+key+", "+value+"> has been inserted at the machine with IP: "+IPAddress);
 				}
 			}
 			return;
 		}
 		// If this machine contains a local or replica storage with lowest load, insert, write it to the query and pass it
 		if (storage.getStorageKeyIPs().contains(query.getIPWithMininumSize())) {
-			System.out.println("handleInsertRound2Query - 3");
 			String key = query.getKey();
 			String value = query.getValue();
 			storage.insert(key, value);
 			// If the machine having the lowest load is a local storage in this machine
 			if (storage.getLocalStorageIPs().contains(query.getIPWithMininumSize())) {
 				query.addMachineIPWithOperation(ownIPAddress);
-
 			}
 			sendQuery(query, nextNeighborIPAddress);
 			return;
@@ -376,8 +526,12 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 	
+	/**
+	 * Handle lookup query.
+	 *
+	 * @param query the query
+	 */
 	private void handleLookupQuery(Query query) {
-		System.out.println("handleLookupQuery");
 		String key = query.getKey();
 		ArrayList<String> localValues = storage.lookupLocal(key);
 		// If we are the issuing client, and if there is a value found for the given key, announce it
@@ -406,6 +560,11 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 	
+	/**
+	 * Handle delete query.
+	 *
+	 * @param query the query
+	 */
 	private void handleDeleteQuery(Query query) {		
 		System.out.println("handleDeleteQuery");
 		String key = query.getKey();
@@ -440,6 +599,12 @@ public class QueryHandler implements Runnable {
 		sendQuery(query, nextNeighborIPAddress);
 	}
 	
+	/**
+	 * Send query to multiple machines.
+	 *
+	 * @param query the query
+	 * @param numberOfMachinesAhead the number of machines ahead
+	 */
 	private void sendQueryToMultipleMachines(Query query, int numberOfMachinesAhead) {
 		int size = currentSystemIPList.size();
 		int index = (currentSystemIPList.indexOf(ownIPAddress) + 1) % size;
@@ -449,6 +614,12 @@ public class QueryHandler implements Runnable {
 		}
 	}
 	
+	/**
+	 * Send query.
+	 *
+	 * @param query the query
+	 * @param destinationIPAddress the destination ip address
+	 */
 	private void sendQuery(Query query, String destinationIPAddress) {
 		try {
 			Socket socket = new Socket(destinationIPAddress, port);
@@ -462,24 +633,40 @@ public class QueryHandler implements Runnable {
 		}
 	}
 	
+	/**
+	 * Sets the next neighbor ip address.
+	 */
 	private void setNextNeighborIPAddress() {
-		System.out.println("setNextNeighborIPAddress");
-		System.out.println("currentSystemIPList: " + currentSystemIPList);
+		System.out.println("Current System: " + currentSystemIPList);
 		int size = currentSystemIPList.size();
 		int index = (currentSystemIPList.indexOf(ownIPAddress)+1) % size;
 		nextNeighborIPAddress = currentSystemIPList.get(index);
 		System.out.println("The next neighbor is now machine with IP: "+nextNeighborIPAddress);
 	}
 
+	/**
+	 * Prints the storage.
+	 */
 	public void printStorage() {
 		storage.printStorage();
 	}
 
 	/**
-	 * @return
+	 * Gets the storage sizes.
+	 *
+	 * @return the storage sizes
 	 */
 	public String getStorageSizes() {
 		return storage.getStorageSizesAsString();
+	}
+	
+	/**
+	 * Gets the current system ip list.
+	 *
+	 * @return the current system ip list
+	 */
+	public ArrayList<String> getCurrentSystemIPList() {
+		return currentSystemIPList;
 	}
 	
 }

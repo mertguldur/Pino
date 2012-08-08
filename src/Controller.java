@@ -16,13 +16,16 @@ import java.util.Scanner;
  */
 public class Controller {
 		
+	/** The query handler. */
 	private QueryHandler queryHandler;
 	
 	
 	/**
 	 * Instantiates a new controller.
-	 * @param dataFileName 
-	 * @param concurrentFailureNumber 
+	 *
+	 * @param port the port
+	 * @param dataFileName the data file name
+	 * @param concurrentFailureNumber the concurrent failure number
 	 */
 	public Controller(int port, String dataFileName, int concurrentFailureNumber) {	
 		String ownIPAddress = null;
@@ -38,7 +41,9 @@ public class Controller {
 
 	/**
 	 * Read config file.
-	 * @param ownIPAddress 
+	 *
+	 * @param ownIPAddress the own ip address
+	 * @return the array list
 	 */
 	private ArrayList<String> readConfigFile(String ownIPAddress) {
 	    Scanner scanner = null;
@@ -57,6 +62,11 @@ public class Controller {
 	}
 	
 	
+	/**
+	 * Gets the queries.
+	 *
+	 * @return the queries
+	 */
 	private void getQueries() {
 		BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(System.in));
 		System.out.println("Press enter to join to the distributed system.");
@@ -66,7 +76,7 @@ public class Controller {
 		} catch (IOException e1) {
 			e1.printStackTrace();
 		}
-		queryHandler.joinToTheSystem();
+		queryHandler.joinTheSystem();
 		while (true) {
 			try {
 				System.out.println("Enter the type of your query, i.e., \"insert\", \"lookup\", \"delete\", \"print\" or \"size\"");
@@ -93,6 +103,9 @@ public class Controller {
 				}
 				else if (queryTypeString.equals("size")) {
 					System.out.println(queryHandler.getStorageSizes());
+				}
+				else if (queryTypeString.equals("current system")) {
+					System.out.println(queryHandler.getCurrentSystemIPList());
 				}
 				else {
 					System.out.println("That type of query doesn't exist!");
