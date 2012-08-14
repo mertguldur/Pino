@@ -18,6 +18,8 @@ Pino is a distributed key-value storage system with fault tolerance and load bal
 
 7. It is scalable; all of its features are designed to function in systems with arbitrary number of computers.
 
+8. The dataset file is read and replicas are created in parallel so as to speedup the storage initialization in computers with multi-core processors.
+
 ### Running Instructions
 
 Inside the bin folder, run the following command:
